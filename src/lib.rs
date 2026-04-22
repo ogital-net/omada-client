@@ -11,11 +11,11 @@ compile_error!("at least one of the `serde_json` or `sonic-rs` features must be 
 /// `sonic-rs` feature flag.
 #[cfg(feature = "serde_json")]
 mod json {
-    pub use serde_json::{Error, Value, from_slice, to_vec};
+    pub use serde_json::{from_slice, to_vec, Error, Value};
 }
 #[cfg(feature = "sonic-rs")]
 mod json {
-    pub use sonic_rs::{Error, Value, from_slice, to_vec};
+    pub use sonic_rs::{from_slice, to_vec, Error, Value};
 }
 
 /// The JSON value type provided by the active JSON backend
@@ -32,8 +32,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_util::{StreamExt as _, stream::BoxStream};
-use log::{Level, debug, log_enabled};
+use futures_util::{stream::BoxStream, StreamExt as _};
+use log::{debug, log_enabled, Level};
 use serde::{Deserialize, Serialize};
 use std::sync::RwLock;
 
@@ -66,10 +66,10 @@ fn log_request(req: &reqwest::Request) {
     for (name, value) in req.headers() {
         debug!("    {}: {}", name, value.to_str().unwrap_or("<binary>"));
     }
-    if let Some(bytes) = req.body().and_then(reqwest::Body::as_bytes)
-        && !bytes.is_empty()
-    {
-        debug!("    {}", String::from_utf8_lossy(bytes));
+    if let Some(bytes) = req.body().and_then(reqwest::Body::as_bytes) {
+        if !bytes.is_empty() {
+            debug!("    {}", String::from_utf8_lossy(bytes));
+        }
     }
 }
 
@@ -116,10 +116,10 @@ impl RequestBuilderExt for reqwest::RequestBuilder {
             // Clone the builder to inspect the request without consuming it.
             // try_clone() returns None only for streaming bodies; all requests
             // in this crate use byte-buffered JSON bodies, so this always succeeds.
-            if let Some(snapshot) = self.try_clone()
-                && let Ok(req) = snapshot.build()
-            {
-                log_request(&req);
+            if let Some(snapshot) = self.try_clone() {
+                if let Ok(req) = snapshot.build() {
+                    log_request(&req);
+                }
             }
         }
 
@@ -501,7 +501,7 @@ fn format_mac<'a>(s: &str, buf: &'a mut [u8; 17]) -> &'a str {
         if i < 17 {
             buf[i] = h;
             i += 1;
-            if i < 17 && (i + 1).is_multiple_of(3) {
+            if i < 17 && (i + 1) % 3 == 0 {
                 buf[i] = b'-';
                 i += 1;
             }
@@ -3636,8 +3636,8 @@ impl OmadaClient {
 mod tests {
     use super::*;
     use wiremock::{
-        Mock, MockServer, ResponseTemplate,
         matchers::{body_partial_json, header, method, path, query_param},
+        Mock, MockServer, ResponseTemplate,
     };
 
     const CLIENT_ID: &str = "29f2fdbeb5a84d50b9b1cdd08cd1a3ff";
