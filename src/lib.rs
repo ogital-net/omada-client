@@ -2,13 +2,19 @@
 
 #[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
 compile_error!("features `serde_json` and `sonic-rs` are mutually exclusive; enable only one");
-#[cfg(not(any(feature = "serde_json", feature = "sonic-rs")))]
-compile_error!("at least one of the `serde_json` or `sonic-rs` features must be enabled");
+#[cfg(all(feature = "serde_json", feature = "simd-json"))]
+compile_error!("features `serde_json` and `simd-json` are mutually exclusive; enable only one");
+#[cfg(all(feature = "sonic-rs", feature = "simd-json"))]
+compile_error!("features `sonic-rs` and `simd-json` are mutually exclusive; enable only one");
+#[cfg(not(any(feature = "serde_json", feature = "sonic-rs", feature = "simd-json")))]
+compile_error!(
+    "at least one of the `serde_json`, `sonic-rs`, or `simd-json` features must be enabled"
+);
 
 // ── JSON backend shim ─────────────────────────────────────────────────────────
 
-/// Active JSON backend, selected at compile time by the `serde_json` or
-/// `sonic-rs` feature flag.
+/// Active JSON backend, selected at compile time by the `serde_json`, `sonic-rs`,
+/// or `simd-json` feature flag.
 #[cfg(feature = "serde_json")]
 mod json {
     pub use serde_json::{from_slice, to_vec, Error, Value};
@@ -17,13 +23,26 @@ mod json {
 mod json {
     pub use sonic_rs::{from_slice, to_vec, Error, Value};
 }
+#[cfg(feature = "simd-json")]
+mod json {
+    pub use simd_json::{to_vec, Error, OwnedValue as Value};
+    pub fn from_slice<T>(input: &[u8]) -> Result<T, Error>
+    where
+        T: for<'de> serde::Deserialize<'de>,
+    {
+        let mut bytes = input.to_vec();
+        simd_json::serde::from_slice(&mut bytes)
+    }
+}
 
 /// The JSON value type provided by the active JSON backend
-/// (`json::Value` by default, or `sonic_rs::Value` with `sonic-rs`).
+/// (`serde_json::Value` by default, `sonic_rs::Value` with `sonic-rs`, or
+/// `simd_json::OwnedValue` with `simd-json`).
 pub use json::Value as JsonValue;
 
 /// The JSON error type provided by the active JSON backend
-/// (`serde_json::Error` by default, or `sonic_rs::Error` with `sonic-rs`).
+/// (`serde_json::Error` by default, `sonic_rs::Error` with `sonic-rs`, or
+/// `simd_json::Error` with `simd-json`).
 pub use json::Error as JsonError;
 
 use std::{
@@ -3428,6 +3447,11 @@ impl OmadaClient {
         port: &str,
         profile_id: &str,
     ) -> Result<()> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(rename = "profileId")]
+            profile_id: &'a str,
+        }
         let token = self.valid_access_token().await?;
         let url = format!(
             "{}/openapi/v1/{}/sites/{site_id}/switches/{}/ports/{port}/profile",
@@ -3438,7 +3462,7 @@ impl OmadaClient {
         self.http
             .put(&url)
             .header("Authorization", format!("AccessToken={token}"))
-            .body_json(&serde_json::json!({ "profileId": profile_id }))?
+            .body_json(&Body { profile_id })?
             .send_json::<ApiResponse<json::Value>>()
             .await?
             .check()
