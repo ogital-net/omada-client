@@ -1,0 +1,22 @@
+services:
+    omada:
+        build:
+            context: ./Dockerfiles
+        ports:
+            - "8088:8088"
+            - "8043:8043"
+            - "19810:19810/udp"
+            - "29810:29810/udp"
+            - "29811:29811"
+            - "29812:29812"
+            - "29813:29813"
+            - "29814:29814"
+            - "29815:29815"
+            - "29816:29816"
+        volumes:
+            - /etc/timezone:/etc/timezone:ro
+            - omada_data:/opt/tplink/EAPController/data
+        tmpfs: /tmp
+
+volumes:
+    omada_data:
