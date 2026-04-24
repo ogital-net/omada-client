@@ -3704,6 +3704,120 @@ pub struct CopyWifiCallingProfileRequest {
     pub name: String,
 }
 
+// ── PPSK profiles ─────────────────────────────────────────────────────────────
+
+/// Brief summary of a PPSK profile returned by the
+/// [`OmadaClient::ppsk_profiles`] list endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PpskProfileBrief {
+    /// PPSK profile ID.
+    pub id: Option<String>,
+    /// PPSK profile name (1–64 characters).
+    pub profile_name: String,
+    /// Names of SSIDs bound to this PPSK profile.
+    pub ssid: Option<Vec<String>>,
+}
+
+/// A single PSK entry within a PPSK profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PskEntry {
+    /// PSK name (1–64 visible ASCII characters).
+    pub name: String,
+    /// Password (8–63 visible ASCII characters or 8–63 hex digits).
+    pub psk: String,
+    /// MAC address bound to this PSK.
+    pub mac: Option<String>,
+    /// VLAN bound to this PSK (1–4094).
+    pub vlan: Option<i32>,
+}
+
+/// PPSK profile expiration configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PpskExpiration {
+    /// Expiration type. `0`: never expire; `1`: between effective and
+    /// expiration timestamps; `2`: for a duration after creation; `3`:
+    /// during designated hours every day.
+    #[serde(rename = "type")]
+    pub expiration_type: Option<i32>,
+    /// Timestamp (ms) when the PPSK takes effect. Required when
+    /// `expiration_type` is `1`.
+    pub effective_time: Option<i64>,
+    /// Timestamp (ms) when the PPSK expires. Required when `expiration_type`
+    /// is `1`.
+    pub expiration_time: Option<i64>,
+    /// Duration of one use. Required when `expiration_type` is `2`.
+    pub duration: Option<i32>,
+    /// Unit for `duration`. `0`: hour; `1`: day; `2`: week. Required when
+    /// `expiration_type` is `2`.
+    pub duration_unit: Option<i32>,
+    /// Hour component of the daily start time (0–23). Required when
+    /// `expiration_type` is `3`.
+    pub day_start_hour: Option<i32>,
+    /// Minute component of the daily start time (0–59). Required when
+    /// `expiration_type` is `3`.
+    pub day_start_min: Option<i32>,
+    /// Hour component of the daily end time (0–23). Required when
+    /// `expiration_type` is `3`.
+    pub day_end_hour: Option<i32>,
+    /// Minute component of the daily end time (0–59). Required when
+    /// `expiration_type` is `3`.
+    pub day_end_min: Option<i32>,
+}
+
+/// PPSK profile rate-limit configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PpskRateLimit {
+    /// Rate limit profile ID. References a profile created via the rate-limit
+    /// profile API.
+    pub rate_limit_profile_id: Option<String>,
+    /// Whether downlink speed limiting is enabled. Required when using custom
+    /// settings.
+    pub down_limit_enable: Option<bool>,
+    /// Downlink speed limit value. In Kbps when `down_limit_type` is `0`
+    /// (1–10 485 760); in Mbps when `down_limit_type` is `1` (1–10 240).
+    pub down_limit: Option<i32>,
+    /// Downlink speed limit unit. `0`: Kbps; `1`: Mbps.
+    pub down_limit_type: Option<i32>,
+    /// Whether uplink speed limiting is enabled. Required when using custom
+    /// settings.
+    pub up_limit_enable: Option<bool>,
+    /// Uplink speed limit value. In Kbps when `up_limit_type` is `0`
+    /// (1–10 485 760); in Mbps when `up_limit_type` is `1` (1–10 240).
+    pub up_limit: Option<i32>,
+    /// Uplink speed limit unit. `0`: Kbps; `1`: Mbps.
+    pub up_limit_type: Option<i32>,
+}
+
+/// Full detail of a PPSK profile returned by the
+/// [`OmadaClient::ppsk_profile`] endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PpskProfileDetail {
+    /// PPSK profile ID.
+    pub id: Option<String>,
+    /// PPSK profile name.
+    pub profile_name: String,
+    /// Names of SSIDs bound to this PPSK profile.
+    pub ssid: Option<Vec<String>>,
+    /// PSK entries in the profile.
+    pub ppsk: Vec<PskEntry>,
+    /// PPSK profile type. `0`: PPSK without RADIUS; `1`: PPSK with built-in
+    /// RADIUS.
+    #[serde(rename = "type")]
+    pub profile_type: Option<i32>,
+    /// Rate-limit configuration for this profile.
+    pub rate_limit: Option<PpskRateLimit>,
+    /// Expiration configuration for this profile.
+    pub expiration: Option<PpskExpiration>,
+    /// Resource origin: `0` = newly created, `1` = from template, `2` =
+    /// override template.
+    pub resource: Option<i32>,
+}
+
 // ── RADIUS profiles ───────────────────────────────────────────────────────────
 
 /// A RADIUS authentication server entry.

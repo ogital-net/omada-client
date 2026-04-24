@@ -941,6 +941,48 @@ impl OmadaClient {
             .check()
     }
 
+    // ── PPSK profile methods ──────────────────────────────────────────────────
+
+    /// Returns the list of all PPSK profiles for the given site.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or the API returns a non-zero
+    /// error code.
+    pub async fn ppsk_profiles(&self, site_id: &str) -> Result<Vec<PpskProfileBrief>> {
+        let token = self.valid_access_token().await?;
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{site_id}/ppsk-profiles",
+            self.base_url, self.omadac_id
+        );
+        self.http
+            .get(&url)
+            .header("Authorization", format!("AccessToken={token}"))
+            .send_json::<ApiResponse<Vec<PpskProfileBrief>>>()
+            .await?
+            .into_result()
+    }
+
+    /// Returns the full detail of a single PPSK profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or the API returns a non-zero
+    /// error code.
+    pub async fn ppsk_profile(&self, site_id: &str, profile_id: &str) -> Result<PpskProfileDetail> {
+        let token = self.valid_access_token().await?;
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{site_id}/ppsk-profile/{profile_id}",
+            self.base_url, self.omadac_id
+        );
+        self.http
+            .get(&url)
+            .header("Authorization", format!("AccessToken={token}"))
+            .send_json::<ApiResponse<PpskProfileDetail>>()
+            .await?
+            .into_result()
+    }
+
     // ── RADIUS profile methods ────────────────────────────────────────────────
 
     /// Returns the list of all RADIUS profiles for the given site.
@@ -4655,6 +4697,176 @@ mod tests {
             Error::Api { error_code, .. } => assert_eq!(error_code, -33004),
             other => panic!("expected Error::Api, got {other:?}"),
         }
+    }
+
+    // ── ppsk_profiles() / ppsk_profile() ──────────────────────────────────────
+
+    const PPSK_PROFILE_ID: &str = "ppsk-profile-001";
+
+    /// GET /openapi/v1/{omadacId}/sites/{siteId}/ppsk-profiles
+    ///   Returns: Vec<PpskProfileBrief>
+    #[tokio::test]
+    async fn ppsk_profiles_returns_list() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-ppsk-list", "RT-ppsk-list")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/ppsk-profiles"
+            )))
+            .and(header("Authorization", "AccessToken=AT-ppsk-list"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": 0,
+                "msg": "Success.",
+                "result": [
+                    {
+                        "id": "ppsk-profile-001",
+                        "profileName": "Staff WiFi",
+                        "ssid": ["Corp-SSID"]
+                    },
+                    {
+                        "id": "ppsk-profile-002",
+                        "profileName": "Guest WiFi",
+                        "ssid": []
+                    }
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        let profiles = client.ppsk_profiles(SITE_ID).await.unwrap();
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(profiles[0].id.as_deref(), Some("ppsk-profile-001"));
+        assert_eq!(profiles[0].profile_name, "Staff WiFi");
+        assert_eq!(
+            profiles[0].ssid.as_deref(),
+            Some(["Corp-SSID".to_owned()].as_slice())
+        );
+        assert_eq!(profiles[1].id.as_deref(), Some("ppsk-profile-002"));
+        assert_eq!(profiles[1].profile_name, "Guest WiFi");
+    }
+
+    /// A non-zero errorCode from ppsk_profiles surfaces as Error::Api.
+    #[tokio::test]
+    async fn ppsk_profiles_api_error_returns_api_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(token_body("AT-ppsk-err", "RT-ppsk-err")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/ppsk-profiles"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": -33004,
+                "msg": "Operation failed because other operations are being performed on this site.",
+                "result": null
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        let err = client.ppsk_profiles(SITE_ID).await.unwrap_err();
+        match err {
+            Error::Api { error_code, .. } => assert_eq!(error_code, -33004),
+            other => panic!("expected Error::Api, got {other:?}"),
+        }
+    }
+
+    /// GET /openapi/v1/{omadacId}/sites/{siteId}/ppsk-profile/{profileId}
+    ///   Returns: PpskProfileDetail
+    #[tokio::test]
+    async fn ppsk_profile_returns_detail() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-ppsk-detail", "RT-ppsk-detail")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/ppsk-profile/{PPSK_PROFILE_ID}"
+            )))
+            .and(header("Authorization", "AccessToken=AT-ppsk-detail"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": 0,
+                "msg": "Success.",
+                "result": {
+                    "id": "ppsk-profile-001",
+                    "profileName": "Staff WiFi",
+                    "ssid": ["Corp-SSID"],
+                    "ppsk": [
+                        { "name": "alice", "psk": "password123", "vlan": 10 },
+                        { "name": "bob",   "psk": "s3cr3t456",   "mac": "AA-BB-CC-DD-EE-FF" }
+                    ],
+                    "type": 0,
+                    "rateLimit": {
+                        "downLimitEnable": true,
+                        "downLimit": 100,
+                        "downLimitType": 1,
+                        "upLimitEnable": false
+                    },
+                    "expiration": {
+                        "type": 0
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        let detail = client.ppsk_profile(SITE_ID, PPSK_PROFILE_ID).await.unwrap();
+        assert_eq!(detail.id.as_deref(), Some("ppsk-profile-001"));
+        assert_eq!(detail.profile_name, "Staff WiFi");
+        assert_eq!(detail.ppsk.len(), 2);
+        assert_eq!(detail.ppsk[0].name, "alice");
+        assert_eq!(detail.ppsk[0].vlan, Some(10));
+        assert_eq!(detail.ppsk[1].mac.as_deref(), Some("AA-BB-CC-DD-EE-FF"));
+        assert_eq!(detail.profile_type, Some(0));
+        let rl = detail.rate_limit.as_ref().unwrap();
+        assert_eq!(rl.down_limit_enable, Some(true));
+        assert_eq!(rl.down_limit, Some(100));
+        assert_eq!(rl.up_limit_enable, Some(false));
+        let exp = detail.expiration.as_ref().unwrap();
+        assert_eq!(exp.expiration_type, Some(0));
     }
 
     // ── radius_profiles() / create_radius_profile() / update_radius_profile()
