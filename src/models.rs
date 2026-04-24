@@ -3704,6 +3704,143 @@ pub struct CopyWifiCallingProfileRequest {
     pub name: String,
 }
 
+// ── RADIUS profiles ───────────────────────────────────────────────────────────
+
+/// A RADIUS authentication server entry.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadiusAuthServer {
+    /// Radius authentication server IP address or domain name. In Pro Site of
+    /// the Omada Pro Controller, a valid IP or domain address is accepted. In
+    /// Omada Controller and Basic Site of the Omada Pro Controller, only a
+    /// valid IP address is accepted.
+    pub radius_server_ip: String,
+    /// Radius authentication server port (1–65535).
+    pub radius_port: i32,
+    /// Radius authentication server password (1–64 printable ASCII characters).
+    /// The `?`, `"`, `%`, and `\` characters may cause the RADIUS function to
+    /// fail and are not recommended.
+    pub radius_pwd: String,
+    /// Whether `RadSec` is enabled on this authentication server.
+    pub rad_sec_enable: Option<bool>,
+    /// CA certificate profile ID. Valid when `rad_sec_enable` is `true`.
+    pub ca_cert: Option<String>,
+    /// Client certificate profile ID. Valid when `rad_sec_enable` is `true`.
+    pub client_cert: Option<String>,
+}
+
+/// A RADIUS accounting server entry.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadiusAcctServer {
+    /// Radius accounting server IP address or domain name. In Pro Site of the
+    /// Omada Pro Controller, a valid IP or domain address is accepted. In
+    /// Omada Controller and Basic Site of the Omada Pro Controller, only a
+    /// valid IP address is accepted.
+    pub accounting_server_ip: String,
+    /// Radius accounting server port (1–65535).
+    pub accounting_server_port: i32,
+    /// Radius accounting server password. The `?`, `"`, `%`, and `\`
+    /// characters may cause the RADIUS function to fail and are not
+    /// recommended.
+    pub accounting_server_pwd: String,
+    /// Whether `RadSec` is enabled on this accounting server.
+    pub rad_sec_enable: Option<bool>,
+    /// CA certificate profile ID. Valid when `rad_sec_enable` is `true`.
+    pub ca_cert: Option<String>,
+    /// Client certificate profile ID. Valid when `rad_sec_enable` is `true`.
+    pub client_cert: Option<String>,
+}
+
+/// A RADIUS profile returned by the [`OmadaClient::radius_profiles`] endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadiusProfile {
+    /// RADIUS profile ID.
+    pub radius_profile_id: Option<String>,
+    /// RADIUS profile name.
+    pub name: Option<String>,
+    /// RADIUS authentication server list.
+    pub auth_server: Option<Vec<RadiusAuthServer>>,
+    /// Whether RADIUS accounting is enabled.
+    pub radius_accounting_enable: Option<bool>,
+    /// Whether interim update is enabled. Valid when `radius_accounting_enable`
+    /// is `true`.
+    pub interim_update_enable: Option<bool>,
+    /// Interim update interval in seconds (60–86400). Valid when
+    /// `interim_update_enable` is `true`.
+    pub interim_update_interval: Option<i32>,
+    /// RADIUS accounting server list. Valid when `radius_accounting_enable` is
+    /// `true`.
+    pub acct_server: Option<Vec<RadiusAcctServer>>,
+    /// Whether VLAN assignment for wireless networks is enabled.
+    pub wireless_vlan_assignment: Option<bool>,
+    /// Whether domain is enabled.
+    pub domain_enable: Option<bool>,
+    /// Whether RADIUS `CoA` is enabled.
+    pub coa_enable: Option<bool>,
+    /// RADIUS `CoA` password. Valid when `coa_enable` is `true`.
+    pub coa_password: Option<String>,
+    /// Whether this is a built-in RADIUS server profile.
+    pub built_in_server: Option<bool>,
+    /// Whether the built-in RADIUS server is enabled. Valid when
+    /// `built_in_server` is `true`.
+    pub server_enable: Option<bool>,
+    /// Whether tunneled reply is enabled on the built-in RADIUS server. Valid
+    /// when `built_in_server` is `true`.
+    pub tunnel_reply_enable: Option<bool>,
+    /// Built-in RADIUS server shared secret. Valid when `built_in_server` is
+    /// `true`.
+    pub built_in_server_secret: Option<String>,
+    /// Built-in RADIUS server IP type. `0`: auto; `1`: custom. Valid when
+    /// `built_in_server` is `true`.
+    pub ip_type: Option<i32>,
+    /// Built-in RADIUS server custom IP. Valid when `built_in_server` is
+    /// `true` and `ip_type` is `1`.
+    pub custom_ip: Option<String>,
+    /// Whether the Message-Authenticator attribute is required.
+    pub require_message_authenticator: Option<bool>,
+}
+
+/// Request body for [`OmadaClient::create_radius_profile`] and
+/// [`OmadaClient::update_radius_profile`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadiusProfileRequest {
+    /// RADIUS profile name (1–64 characters, must not start with a space,
+    /// `+`, `-`, `@`, or `=`).
+    pub name: String,
+    /// RADIUS authentication server list.
+    pub auth_server: Vec<RadiusAuthServer>,
+    /// Whether RADIUS accounting is enabled.
+    pub radius_accounting_enable: bool,
+    /// Whether interim update is enabled. Valid when `radius_accounting_enable`
+    /// is `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interim_update_enable: Option<bool>,
+    /// Interim update interval in seconds (60–86400). Valid when
+    /// `interim_update_enable` is `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interim_update_interval: Option<i32>,
+    /// RADIUS accounting server list. Valid when `radius_accounting_enable` is
+    /// `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acct_server: Option<Vec<RadiusAcctServer>>,
+    /// Whether VLAN assignment for wireless networks is enabled.
+    pub wireless_vlan_assignment: bool,
+    /// Whether RADIUS `CoA` is enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coa_enable: Option<bool>,
+    /// RADIUS `CoA` password (1–128 characters). Required when `coa_enable` is
+    /// `true`. The `?`, `"`, `%`, and `\` characters may cause the RADIUS
+    /// function to fail and are not recommended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coa_password: Option<String>,
+    /// Whether the Message-Authenticator attribute is required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub require_message_authenticator: Option<bool>,
+}
+
 /// General configuration for a managed switch.
 ///
 /// After the device is added to a stack group, only the device name may be

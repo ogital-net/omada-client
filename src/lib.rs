@@ -941,6 +941,108 @@ impl OmadaClient {
             .check()
     }
 
+    // ── RADIUS profile methods ────────────────────────────────────────────────
+
+    /// Returns the list of all RADIUS profiles for the given site.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or the API returns a non-zero
+    /// error code.
+    pub async fn radius_profiles(&self, site_id: &str) -> Result<Vec<RadiusProfile>> {
+        let token = self.valid_access_token().await?;
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{site_id}/profiles/radius",
+            self.base_url, self.omadac_id
+        );
+        self.http
+            .get(&url)
+            .header("Authorization", format!("AccessToken={token}"))
+            .send_json::<ApiResponse<Vec<RadiusProfile>>>()
+            .await?
+            .into_result()
+    }
+
+    /// Creates a new RADIUS profile for the given site.
+    ///
+    /// Returns the ID string of the newly created profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or the API returns a non-zero
+    /// error code (e.g. `-34004` when a profile with that name already exists,
+    /// or `-34014` when the RADIUS profile limit is reached).
+    pub async fn create_radius_profile(
+        &self,
+        site_id: &str,
+        body: &RadiusProfileRequest,
+    ) -> Result<String> {
+        let token = self.valid_access_token().await?;
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{site_id}/profiles/radius",
+            self.base_url, self.omadac_id
+        );
+        self.http
+            .post(&url)
+            .header("Authorization", format!("AccessToken={token}"))
+            .body_json(body)?
+            .send_json::<ApiResponse<String>>()
+            .await?
+            .into_result()
+    }
+
+    /// Modifies an existing RADIUS profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or the API returns a non-zero
+    /// error code (e.g. `-34005` when the profile does not exist, or `-34004`
+    /// when the new name conflicts with another profile).
+    pub async fn update_radius_profile(
+        &self,
+        site_id: &str,
+        radius_profile_id: &str,
+        body: &RadiusProfileRequest,
+    ) -> Result<()> {
+        let token = self.valid_access_token().await?;
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{site_id}/profiles/radius/{radius_profile_id}",
+            self.base_url, self.omadac_id
+        );
+        self.http
+            .patch(&url)
+            .header("Authorization", format!("AccessToken={token}"))
+            .body_json(body)?
+            .send_json::<ApiResponse<json::Value>>()
+            .await?
+            .check()
+    }
+
+    /// Deletes an existing RADIUS profile from the given site.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or the API returns a non-zero
+    /// error code (e.g. `-34009` when the profile is used in MAC-Based
+    /// Authentication, or `-34013` when it is applied to an SSID).
+    pub async fn delete_radius_profile(
+        &self,
+        site_id: &str,
+        radius_profile_id: &str,
+    ) -> Result<()> {
+        let token = self.valid_access_token().await?;
+        let url = format!(
+            "{}/openapi/v1/{}/sites/{site_id}/profiles/radius/{radius_profile_id}",
+            self.base_url, self.omadac_id
+        );
+        self.http
+            .delete(&url)
+            .header("Authorization", format!("AccessToken={token}"))
+            .send_json::<ApiResponse<json::Value>>()
+            .await?
+            .check()
+    }
+
     // ── SSID methods ─────────────────────────────────────────────────
 
     /// Returns one page of SSIDs for the given site WLAN group.
@@ -4553,6 +4655,298 @@ mod tests {
             Error::Api { error_code, .. } => assert_eq!(error_code, -33004),
             other => panic!("expected Error::Api, got {other:?}"),
         }
+    }
+
+    // ── radius_profiles() / create_radius_profile() / update_radius_profile()
+    //    / delete_radius_profile() ────────────────────────────────────────────
+
+    const RADIUS_PROFILE_ID: &str = "radius-profile-001";
+
+    /// GET /openapi/v1/{omadacId}/sites/{siteId}/profiles/radius
+    ///   Returns: Vec<RadiusProfile>
+    #[tokio::test]
+    async fn radius_profiles_returns_list() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-radius-list", "RT-radius-list")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/profiles/radius"
+            )))
+            .and(header("Authorization", "AccessToken=AT-radius-list"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": 0,
+                "msg": "Success.",
+                "result": [
+                    {
+                        "radiusProfileId": "radius-profile-001",
+                        "name": "Corp RADIUS",
+                        "authServer": [
+                            {
+                                "radiusServerIp": "192.168.1.100",
+                                "radiusPort": 1812,
+                                "radiusPwd": "secret123"
+                            }
+                        ],
+                        "radiusAccountingEnable": false,
+                        "wirelessVlanAssignment": true,
+                        "builtInServer": false
+                    }
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        let profiles = client.radius_profiles(SITE_ID).await.unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(
+            profiles[0].radius_profile_id.as_deref(),
+            Some("radius-profile-001")
+        );
+        assert_eq!(profiles[0].name.as_deref(), Some("Corp RADIUS"));
+        let auth = profiles[0].auth_server.as_ref().unwrap();
+        assert_eq!(auth[0].radius_server_ip, "192.168.1.100");
+        assert_eq!(auth[0].radius_port, 1812);
+        assert_eq!(profiles[0].radius_accounting_enable, Some(false));
+        assert_eq!(profiles[0].wireless_vlan_assignment, Some(true));
+    }
+
+    /// A non-zero errorCode from radius_profiles surfaces as Error::Api.
+    #[tokio::test]
+    async fn radius_profiles_api_error_returns_api_error() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-radius-err", "RT-radius-err")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/profiles/radius"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": -33004,
+                "msg": "Operation failed because other operations are being performed on this site.",
+                "result": null
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        let err = client.radius_profiles(SITE_ID).await.unwrap_err();
+        match err {
+            Error::Api { error_code, .. } => assert_eq!(error_code, -33004),
+            other => panic!("expected Error::Api, got {other:?}"),
+        }
+    }
+
+    /// POST /openapi/v1/{omadacId}/sites/{siteId}/profiles/radius
+    ///   Returns: String (new profile ID)
+    #[tokio::test]
+    async fn create_radius_profile_posts_body_and_returns_id() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-radius-create", "RT-radius-create")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/profiles/radius"
+            )))
+            .and(header("Authorization", "AccessToken=AT-radius-create"))
+            .and(body_partial_json(serde_json::json!({
+                "name": "Guest RADIUS",
+                "radiusAccountingEnable": false,
+                "wirelessVlanAssignment": false
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": 0,
+                "msg": "Success.",
+                "result": "radius-profile-new"
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        let id = client
+            .create_radius_profile(
+                SITE_ID,
+                &RadiusProfileRequest {
+                    name: "Guest RADIUS".to_owned(),
+                    auth_server: vec![RadiusAuthServer {
+                        radius_server_ip: "10.0.0.1".to_owned(),
+                        radius_port: 1812,
+                        radius_pwd: "topsecret".to_owned(),
+                        rad_sec_enable: None,
+                        ca_cert: None,
+                        client_cert: None,
+                    }],
+                    radius_accounting_enable: false,
+                    interim_update_enable: None,
+                    interim_update_interval: None,
+                    acct_server: None,
+                    wireless_vlan_assignment: false,
+                    coa_enable: None,
+                    coa_password: None,
+                    require_message_authenticator: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(id, "radius-profile-new");
+    }
+
+    /// PATCH /openapi/v1/{omadacId}/sites/{siteId}/profiles/radius/{radiusProfileId}
+    #[tokio::test]
+    async fn update_radius_profile_sends_patch_and_succeeds() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-radius-update", "RT-radius-update")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PATCH"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/profiles/radius/{RADIUS_PROFILE_ID}"
+            )))
+            .and(header("Authorization", "AccessToken=AT-radius-update"))
+            .and(body_partial_json(serde_json::json!({
+                "name": "Corp RADIUS Updated",
+                "radiusAccountingEnable": true,
+                "wirelessVlanAssignment": true
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": 0,
+                "msg": "Success.",
+                "result": null
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        client
+            .update_radius_profile(
+                SITE_ID,
+                RADIUS_PROFILE_ID,
+                &RadiusProfileRequest {
+                    name: "Corp RADIUS Updated".to_owned(),
+                    auth_server: vec![RadiusAuthServer {
+                        radius_server_ip: "192.168.1.100".to_owned(),
+                        radius_port: 1812,
+                        radius_pwd: "newsecret".to_owned(),
+                        rad_sec_enable: None,
+                        ca_cert: None,
+                        client_cert: None,
+                    }],
+                    radius_accounting_enable: true,
+                    interim_update_enable: Some(true),
+                    interim_update_interval: Some(300),
+                    acct_server: Some(vec![RadiusAcctServer {
+                        accounting_server_ip: "192.168.1.101".to_owned(),
+                        accounting_server_port: 1813,
+                        accounting_server_pwd: "acctpwd".to_owned(),
+                        rad_sec_enable: None,
+                        ca_cert: None,
+                        client_cert: None,
+                    }]),
+                    wireless_vlan_assignment: true,
+                    coa_enable: None,
+                    coa_password: None,
+                    require_message_authenticator: None,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    /// DELETE /openapi/v1/{omadacId}/sites/{siteId}/profiles/radius/{radiusProfileId}
+    #[tokio::test]
+    async fn delete_radius_profile_sends_delete_and_succeeds() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/openapi/authorize/token"))
+            .and(query_param("grant_type", "client_credentials"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(token_body("AT-radius-delete", "RT-radius-delete")),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("DELETE"))
+            .and(path(format!(
+                "/openapi/v1/{OMADAC_ID}/sites/{SITE_ID}/profiles/radius/{RADIUS_PROFILE_ID}"
+            )))
+            .and(header("Authorization", "AccessToken=AT-radius-delete"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "errorCode": 0,
+                "msg": "Success.",
+                "result": null
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            OmadaClient::with_client_credentials(server.uri(), OMADAC_ID, CLIENT_ID, CLIENT_SECRET)
+                .await
+                .unwrap();
+
+        client
+            .delete_radius_profile(SITE_ID, RADIUS_PROFILE_ID)
+            .await
+            .unwrap();
     }
 
     // ── SSID methods ──────────────────────────────────────────────────────────
